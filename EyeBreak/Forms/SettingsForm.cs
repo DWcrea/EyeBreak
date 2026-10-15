@@ -14,6 +14,7 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _startup = new() { Text = "开机启动", AutoSize = true };
     private readonly CheckBox _sound = new() { Text = "轻提示音", AutoSize = true };
     private readonly CheckBox _immediate = new() { Text = "启动后立即计时", AutoSize = true };
+    private readonly CheckBox _minimize = new() { Text = "休息时最小化所有窗口（Win+D，休息结束自动还原）", AutoSize = true };
     private readonly Label _status = new() { AutoSize = true };
     public AppSettings? Result { get; private set; }
 
@@ -45,6 +46,8 @@ public sealed class SettingsForm : Form
         layout.Controls.Add(_startup, 1, 5);
         layout.Controls.Add(_sound, 0, 6);
         layout.Controls.Add(_immediate, 1, 6);
+        layout.Controls.Add(_minimize, 0, 7);
+        layout.SetColumnSpan(_minimize, 2);
         var note = new Label { Text = "工作间隔修改后，从下一轮开始生效；当前计时进度保留。\n每次启动重新计时，不保存上次剩余时间。",
             AutoSize = true, ForeColor = Color.DimGray };
         layout.Controls.Add(note, 0, 8);
@@ -61,7 +64,8 @@ public sealed class SettingsForm : Form
                 LongBreakMinutes = (int)_long.Value, LongBreakEvery = (int)_frequency.Value,
                 IdleThresholdSeconds = int.Parse(_idle.SelectedItem!.ToString()!.Split(' ')[0]),
                 LongBreakEnabled = _longEnabled.Checked, StartWithWindows = _startup.Checked,
-                SoundEnabled = _sound.Checked, StartImmediately = _immediate.Checked
+                SoundEnabled = _sound.Checked, StartImmediately = _immediate.Checked,
+                MinimizeWindowsOnBreak = _minimize.Checked
             };
             DialogResult = DialogResult.OK;
             Close();
@@ -90,6 +94,7 @@ public sealed class SettingsForm : Form
         _startup.Checked = settings.StartWithWindows;
         _sound.Checked = settings.SoundEnabled;
         _immediate.Checked = settings.StartImmediately;
+        _minimize.Checked = settings.MinimizeWindowsOnBreak;
     }
 
     private static NumericUpDown Number(int min, int max) => new() { Minimum = min, Maximum = max, Width = 180 };

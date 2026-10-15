@@ -11,6 +11,7 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
     public bool SoundEnabled { get; set; }
     public bool StartImmediately { get; set; } = true;
+    public bool MinimizeWindowsOnBreak { get; set; }
 
     public AppSettings Validated() => new()
     {
@@ -22,6 +23,7 @@ public sealed class AppSettings
         IdleThresholdSeconds = new[] { 60, 120, 180, 300 }.Contains(IdleThresholdSeconds) ? IdleThresholdSeconds : 120,
         StartWithWindows = StartWithWindows,
         SoundEnabled = SoundEnabled,
-        StartImmediately = StartImmediately
+        StartImmediately = StartImmediately,
+        MinimizeWindowsOnBreak = MinimizeWindowsOnBreak
     };
 }

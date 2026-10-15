@@ -27,6 +27,8 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly bool _testMode;
     private bool _sessionLocked;
     private bool _systemSuspended;
+    private bool _desktopMinimized;
+    private string _lastDisplayKey = string.Empty;
 
     public TrayApplicationContext(bool testMode)
     {
@@ -46,7 +48,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         };
         _deferItem.Click += (_, _) => Postpone();
         _startupItem.Click += (_, _) => ToggleStartup();
-        _menu.Opening += (_, _) => RefreshDisplay();
+        _menu.Opening += (_, _) => RefreshDisplay(force: true);
         _tray = new NotifyIcon
         {
             Icon = SystemIcons.Information,
@@ -59,7 +61,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         SystemEvents.SessionSwitch += OnSessionSwitch;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         _timer.Start();
-        RefreshDisplay();
+        RefreshDisplay(force: true);
     }
 
     private void Tick()
@@ -74,8 +76,13 @@ public sealed class TrayApplicationContext : ApplicationContext
         _engine.Advance(elapsed, idle);
         if (!wasBreaking && _engine.IsBreaking) ShowBreak();
         else if (wasBreaking && !_engine.IsBreaking) HideBreak();
-        if (_breakForm is { IsDisposed: false })
-            _breakForm.RefreshSnapshot(_engine.Snapshot, _engine.CanPostpone);
+        if (_breakForm is { IsDisposed: false } breakForm)
+        {
+            // 显示桌面可能连带最小化提醒窗，这里保证它始终可见。
+            if (breakForm.WindowState != FormWindowState.Normal)
+                breakForm.WindowState = FormWindowState.Normal;
+            breakForm.RefreshSnapshot(_engine.Snapshot, _engine.CanPostpone);
+        }
         RefreshDisplay();
     }
 
@@ -102,6 +109,9 @@ public sealed class TrayApplicationContext : ApplicationContext
     private void ShowBreak()
     {
         if (_breakForm != null) return;
+        // 先显示桌面再创建提醒窗，避免提醒窗被一并最小化。
+        if (_settings.MinimizeWindowsOnBreak)
+            _desktopMinimized = DesktopMinimizer.MinimizeAll();
         var form = new BreakReminderForm();
         _breakForm = form;
         form.Postponed += Postpone;
@@ -114,6 +124,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         };
         form.RefreshSnapshot(_engine.Snapshot, _engine.CanPostpone);
         form.Show();
+        form.BringToFront();
         if (_settings.SoundEnabled) SystemSounds.Asterisk.Play();
     }
 
@@ -122,6 +133,15 @@ public sealed class TrayApplicationContext : ApplicationContext
         BreakReminderForm? form = _breakForm;
         _breakForm = null;
         form?.Close();
+        RestoreDesktop();
+    }
+
+    /// <summary>休息结束、被推迟或程序退出时，还原休息前最小化的窗口。</summary>
+    private void RestoreDesktop()
+    {
+        if (!_desktopMinimized) return;
+        _desktopMinimized = false;
+        DesktopMinimizer.UndoMinimizeAll();
     }
 
     private void TakeBreakNow()
@@ -166,7 +186,7 @@ public sealed class TrayApplicationContext : ApplicationContext
                 _store.Save(form.Result);
                 _settings = form.Result;
                 _engine.ApplySettings(_settings);
-                RefreshDisplay();
+                RefreshDisplay(force: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException)
             {
@@ -189,32 +209,40 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             MessageBox.Show($"更改开机启动失败：{ex.Message}", "EyeBreak", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-        RefreshDisplay();
+        RefreshDisplay(force: true);
     }
 
-    private void RefreshDisplay()
+    private void RefreshDisplay(bool force = false)
     {
         TimerSnapshot s = _engine.Snapshot;
-        string state = s.State switch
-        {
-            TimerState.Working => "学习中", TimerState.IdlePaused => "空闲暂停",
-            TimerState.UserPaused => "已暂停", TimerState.Deferred => "提醒已推迟",
-            TimerState.LongBreak => "长休息中", _ => "休息中"
-        };
-        _stateItem.Text = $"当前状态：{state}{(_testMode ? "（测试模式）" : "")}";
+        string state = DisplayText.StateLabel(s.State);
         TimeSpan remaining = s.State switch
         {
             TimerState.ShortBreak or TimerState.LongBreak => s.BreakRemaining,
             TimerState.Deferred => s.DeferRemaining,
             _ => s.WorkRemaining
         };
-        _remainingItem.Text = $"{(s.State == TimerState.Deferred ? "推迟提醒剩余" : "距离下一次提醒 / 休息剩余")}：{(int)Math.Ceiling(remaining.TotalSeconds) / 60:00}:{(int)Math.Ceiling(remaining.TotalSeconds) % 60:00}";
+        string clock = DisplayText.Clock(remaining);
+        string tooltip = DisplayText.TrayTooltip(s.State, remaining);
+
+        // 每秒最多刷新一次界面，避免无意义地反复改写托盘与菜单文本。
+        string key = $"{state}|{tooltip}|{s.IsPaused}|{_engine.CanPostpone}";
+        if (!force && key == _lastDisplayKey) return;
+        _lastDisplayKey = key;
+
+        _stateItem.Text = $"当前状态：{state}{(_testMode ? "（测试模式）" : "")}";
+        _remainingItem.Text = $"{(s.State == TimerState.Deferred ? "推迟提醒剩余" : "距离下一次提醒 / 休息剩余")}：{clock}";
         _pauseItem.Text = s.IsPaused ? "继续计时" : "暂停计时";
         _pauseItem.Enabled = !_engine.IsBreaking;
         _deferItem.Enabled = _engine.CanPostpone;
+        _tray.Text = tooltip;
+        if (force) RefreshStartupCheck();
+    }
+
+    private void RefreshStartupCheck()
+    {
         try { _startupItem.Checked = StartupManager.IsEnabled(); }
         catch (System.Security.SecurityException) { _startupItem.Checked = false; }
-        _tray.Text = $"EyeBreak · {state}";
     }
 
     protected override void ExitThreadCore()

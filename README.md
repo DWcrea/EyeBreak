@@ -18,7 +18,9 @@ C# · .NET 10 LTS · Windows Forms · 零第三方 NuGet 依赖 · 简体中文�
 | 智能空闲检测 | 基于 `GetLastInputInfo` 判断键鼠空闲；超过阈值暂停累计，恢复后**保留原进度** |
 | 长休息机制 | 每完成 N 轮（默认 3 轮）安排一次 5 分钟长休息，**替代**该轮短休息，不会连续弹两次 |
 | 非阻塞提醒 | 休息窗不锁定电脑、不禁用键鼠、不关闭其他软件，可随时手动关闭 |
+| 休息时显示桌面 | 可选：休息开始时最小化所有窗口（等同 Win+D，**不关闭任何程序**），休息结束、推迟或退出程序时自动还原 |
 | 托盘常驻 | 状态与倒计时、暂停/继续、立即休息、推迟 5 分钟、设置、开机启动、退出 |
+| 托盘悬浮提示 | 鼠标悬停在托盘图标上显示当前状态与剩余时间（如「学习中 · 距提醒 19:32」） |
 | 推迟提醒 | 推迟 5 分钟再次提醒；推迟期间不会触发第二个弹窗 |
 | 中文设置窗口 | 工作间隔、短/长休息、长休息频率、空闲阈值、声音、自启、启动即计时 |
 | 配置持久化 | 保存到 `%AppData%\EyeBreak\settings.json`，损坏时安全回退默认值 |
@@ -77,7 +79,13 @@ dotnet --list-runtimes
 
 **双击**托盘图标可打开设置窗口。
 
+**鼠标悬停**在托盘图标上会显示当前状态与剩余时间，例如「EyeBreak · 学习中 · 距提醒 19:32」、「EyeBreak · 休息中 · 休息剩余 00:15」。
+
 **休息窗口**：可等待倒计时结束、点击「结束休息」提前结束，或在自动提醒时选择「推迟 5 分钟」。
+
+**休息时显示桌面（可选）**：在设置中勾选「休息时最小化所有窗口」后，休息开始时会最小化所有窗口，相当于按下 Win+D——**只是最小化，不会关闭或退出任何程序**，也不会丢失未保存的内容。以下任一情况发生时会自动还原窗口：休息倒计时结束、点击「结束休息」、「推迟 5 分钟」，或退出 EyeBreak。
+
+该功能默认**关闭**：它会明显改变桌面状态，属于侵入性行为，因此需要你主动开启。手动点击「立即休息」时同样适用。需要注意，还原使用的是系统的「撤销全部最小化」，因此你在休息前已经手动最小化的窗口也会一并被还原。
 
 ---
 
@@ -93,6 +101,7 @@ dotnet --list-runtimes
 | 开机启动 | 关闭 | 手动启用 |
 | 声音提醒 | 关闭 | 开关 |
 | 启动后立即计时 | 开启 | 开关 |
+| 休息时最小化所有窗口 | 关闭 | 开关（等同 Win+D，休息结束自动还原） |
 
 配置保存于 `%AppData%\EyeBreak\settings.json`，首次启动自动生成。
 
@@ -135,7 +144,7 @@ Working（有效使用计时）
 # 编译
 dotnet build .\EyeBreak.sln -c Release
 
-# 自动化测试（计时状态机与配置持久化，11 项）
+# 自动化测试（计时状态机、配置持久化与提示文本，13 项）
 dotnet run --project .\tests\EyeBreak.Tests\EyeBreak.Tests.csproj -c Release
 
 # 发布：框架依赖型单文件（体积小，需目标机安装 .NET 10 Desktop Runtime）
@@ -162,6 +171,12 @@ dotnet run --project .\tests\EyeBreak.Tests\EyeBreak.Tests.csproj -c Release `
   -- --ui-smoke .\outputs\win-x64-small\EyeBreak.exe
 ```
 
+**显示桌面实测**（会短暂最小化当前桌面的所有窗口并立即还原，用受控窗口验证 MinimizeAll / UndoMinimizeAll 是否生效）：
+
+```powershell
+dotnet run --project .\tests\EyeBreak.Tests\EyeBreak.Tests.csproj -c Release -- --verify-shell
+```
+
 > 同一时刻只允许一个实例运行，测试模式不要与正式实例同时启动。
 > 实际测试记录与尚未验证的项目见 [TESTING.md](TESTING.md)。
 
@@ -183,9 +198,11 @@ EyeBreak/
 │   │   ├── EyeBreakTimerService.cs   # 纯计时状态机（与 UI 解耦）
 │   │   ├── IdleDetector.cs           # GetLastInputInfo 空闲检测
 │   │   ├── SettingsStore.cs          # JSON 读写与损坏回退
-│   │   └── StartupManager.cs         # HKCU 开机启动项
+│   │   ├── StartupManager.cs         # HKCU 开机启动项
+│   │   └── DesktopMinimizer.cs       # 显示桌面 / 还原（Shell 对象模型）
 │   ├── Models/
 │   │   ├── AppSettings.cs
+│   │   ├── DisplayText.cs            # 状态与提示文本拼装（可单元测试）
 │   │   └── TimerState.cs
 │   └── Forms/
 │       ├── SettingsForm.cs

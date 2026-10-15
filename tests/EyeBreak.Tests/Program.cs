@@ -1,9 +1,37 @@
 using EyeBreak.Models;
 using EyeBreak.Services;
+using System.Threading;
+
+// WinForms 相关验证必须在 STA 线程上运行。
+static void RunSta(Action action)
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try { action(); }
+        catch (Exception ex) { failure = ex; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure != null) throw failure;
+}
 
 if (args.Length == 2 && args[0] == "--ui-smoke")
 {
     UiSmoke.Run(args[1]);
+    return;
+}
+
+if (args.Length == 1 && args[0] == "--verify-shell")
+{
+    RunSta(ShellSmoke.Run);
+    return;
+}
+
+if (args.Length == 2 && args[0] == "--verify-break")
+{
+    RunSta(() => BreakMinimizeSmoke.Run(args[1]));
     return;
 }
 
@@ -28,6 +56,7 @@ Check("默认设置与范围校验", () =>
     Equal(20, defaults.WorkMinutes);
     Equal(20, defaults.ShortBreakSeconds);
     Equal(3, defaults.LongBreakEvery);
+    Equal(false, defaults.MinimizeWindowsOnBreak);
     var valid = new AppSettings { WorkMinutes = -10, IdleThresholdSeconds = 77,
         ShortBreakSeconds = 1000, LongBreakEvery = 99 }.Validated();
     Equal(1, valid.WorkMinutes);
@@ -132,10 +161,12 @@ Check("损坏 JSON 恢复默认并可持久化", () =>
     try
     {
         Equal(20, store.Load().WorkMinutes);
-        store.Save(new AppSettings { WorkMinutes = 42 });
+        store.Save(new AppSettings { WorkMinutes = 42, MinimizeWindowsOnBreak = true });
         Equal(42, store.Load().WorkMinutes);
+        Equal(true, store.Load().MinimizeWindowsOnBreak);
         File.WriteAllText(file, "not json");
         Equal(20, store.Load().WorkMinutes);
+        Equal(false, store.Load().MinimizeWindowsOnBreak);
     }
     finally { Directory.Delete(Path.GetDirectoryName(file)!, true); }
 });
@@ -145,5 +176,33 @@ Check("20 秒测试工作 + 5 秒测试休息", () =>
     Advance(t, 20); Equal(TimerState.ShortBreak, t.State);
     Advance(t, 5); Equal(TimerState.Working, t.State);
     Equal(TimeSpan.FromSeconds(20), t.Snapshot.WorkRemaining);
+});
+Check("托盘提示显示剩余时间", () =>
+{
+    Equal("EyeBreak · 学习中 · 距提醒 19:32",
+        DisplayText.TrayTooltip(TimerState.Working, TimeSpan.FromSeconds(19 * 60 + 32)));
+    Equal("EyeBreak · 休息中 · 休息剩余 00:15",
+        DisplayText.TrayTooltip(TimerState.ShortBreak, TimeSpan.FromSeconds(15)));
+    Equal("EyeBreak · 长休息中 · 休息剩余 04:32",
+        DisplayText.TrayTooltip(TimerState.LongBreak, TimeSpan.FromSeconds(4 * 60 + 32)));
+    Equal("EyeBreak · 提醒已推迟 · 推迟剩余 04:59",
+        DisplayText.TrayTooltip(TimerState.Deferred, TimeSpan.FromSeconds(4 * 60 + 59)));
+    Equal("EyeBreak · 已暂停 · 距提醒 12:00",
+        DisplayText.TrayTooltip(TimerState.UserPaused, TimeSpan.FromMinutes(12)));
+    Equal("EyeBreak · 空闲暂停 · 距提醒 12:00",
+        DisplayText.TrayTooltip(TimerState.IdlePaused, TimeSpan.FromMinutes(12)));
+    Equal("00:00", DisplayText.Clock(TimeSpan.FromSeconds(-5)));
+});
+Check("托盘提示长度不超过系统上限", () =>
+{
+    TimeSpan[] samples = [TimeSpan.Zero, TimeSpan.FromSeconds(1),
+        TimeSpan.FromMinutes(120), TimeSpan.FromMinutes(59)];
+    foreach (TimerState state in Enum.GetValues<TimerState>())
+        foreach (TimeSpan sample in samples)
+        {
+            string text = DisplayText.TrayTooltip(state, sample);
+            if (text.Length > DisplayText.TooltipMaxLength)
+                throw new Exception($"{state} 提示过长（{text.Length}）：{text}");
+        }
 });
 Console.WriteLine($"ALL PASS ({passed} tests)");
