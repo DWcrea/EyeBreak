@@ -1,0 +1,16 @@
+# 本地 .NET SDK（dotnet-install.ps1 安装，约 300 MB，不纳入版本控制）
+.dotnet/
+dotnet-install.ps1
+
+# 编译与发布产物
+**/bin/
+**/obj/
+outputs/
+dist/
+
+# IDE 与本机文件
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs

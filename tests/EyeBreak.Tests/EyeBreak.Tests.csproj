@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../EyeBreak/Models/AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="../../EyeBreak/Models/TimerState.cs" Link="TimerState.cs" />
+    <Compile Include="../../EyeBreak/Services/EyeBreakTimerService.cs" Link="EyeBreakTimerService.cs" />
+    <Compile Include="../../EyeBreak/Services/SettingsStore.cs" Link="SettingsStore.cs" />
+  </ItemGroup>
+</Project>
